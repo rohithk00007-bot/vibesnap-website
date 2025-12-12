@@ -16,7 +16,8 @@
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <script type="text/javascript">
        (function(){
-          emailjs.init("fIY9vSsQZlJ-Gp3XO"); // Your Public Key
+          // UPDATED Public Key
+          emailjs.init("mjGnxK5VD-Mr5jmJf");
        })();
     </script>
     
@@ -146,8 +147,6 @@
                     if(userNameDisplay) userNameDisplay.textContent = `Hey, ${firstName}`;
                     
                     loadProfile(user.uid);
-                    // We don't load bookings here anymore to save bandwidth
-                    // We load them when the user clicks the button
                 } else {
                     guestSection.classList.remove('hidden');
                     userSection.classList.add('hidden');
@@ -166,7 +165,7 @@
             if (logoutBtn) logoutBtn.addEventListener('click', () => { signOut(auth); });
         }
 
-        // --- Modals Logic & BUG FIX: Force Booking Load ---
+        // --- Modals Logic ---
         function openModal(modal) {
             modal.classList.remove('hidden');
             toggleMenu(); 
@@ -175,11 +174,9 @@
             modal.classList.add('hidden');
         }
 
-        // *** FIX: Load Bookings ON CLICK ***
         if (myBookingsBtn) {
             myBookingsBtn.addEventListener('click', () => {
                 if (currentUser) {
-                    // Force reload bookings every time button is clicked
                     console.log("Loading bookings for:", currentUser.uid);
                     loadBookings(currentUser.uid);
                 } else {
@@ -240,7 +237,7 @@
             });
         }
 
-        // --- Booking Submission (WITH EMAILJS) ---
+        // --- Booking Submission (WITH NEW EMAILJS KEYS) ---
         if (contactForm) {
             contactForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -285,7 +282,7 @@
                         displayDate: new Date().toLocaleDateString() 
                     });
                     
-                    // 2. SEND EMAIL NOTIFICATION
+                    // 2. SEND EMAIL NOTIFICATION (UPDATED)
                     const emailData = {
                         customer_name: name,
                         customer_phone: phone,
@@ -297,7 +294,8 @@
                         vision: vision
                     };
 
-                    emailjs.send("service_so4a3gn", "template_wlcejio", emailData)
+                    // UPDATED Service ID and Template ID
+                    emailjs.send("service_tcxfbr9", "template_pspzhf8", emailData)
                         .then(() => console.log("Email sent!"))
                         .catch((err) => console.error("Email failed:", err));
 
@@ -357,14 +355,13 @@
             });
         }
 
-        // --- Load Bookings (ROBUST VERSION) ---
+        // --- Load Bookings ---
         function loadBookings(userId) {
             if (!db) {
                 console.error("Database not initialized");
                 return;
             }
             
-            // Show loading state
             if(bookingsList) bookingsList.innerHTML = '<div class="text-center text-zinc-500 py-10">Loading bookings...</div>';
 
             if (bookingsUnsubscribe) bookingsUnsubscribe(); 
