@@ -12,6 +12,15 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
+    <!-- EMAILJS SDK (NEW) -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <script type="text/javascript">
+       (function(){
+          // Initialize EmailJS with your Public Key
+          emailjs.init("fIY9vSsQZlJ-Gp3XO");
+       })();
+    </script>
+    
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
@@ -221,7 +230,7 @@
             });
         }
 
-        // --- Booking Submission ---
+        // --- Booking Submission (WITH EMAILJS) ---
         if (contactForm) {
             contactForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -249,11 +258,11 @@
                 const shootTime = document.getElementById('time-input').value;
 
                 try {
-                    // STORE IN PUBLIC COLLECTION FOR ADMIN ACCESS
+                    // 1. STORE IN FIREBASE
                     const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
                     
                     await addDoc(bookingsRef, {
-                        uid: currentUser.uid, // Reference to who booked it
+                        uid: currentUser.uid, 
                         platform: platform,
                         vision: vision,
                         customerName: name,
@@ -261,24 +270,41 @@
                         customerEmail: email,
                         locationPlace: place,
                         locationPincode: pincode,
-                        shootDate: shootDate, // New Field
-                        shootTime: shootTime, // New Field
+                        shootDate: shootDate,
+                        shootTime: shootTime,
                         status: 'Upcoming', 
                         createdAt: serverTimestamp(),
-                        // Backup string date for display if timestamp isn't ready
                         displayDate: new Date().toLocaleDateString() 
                     });
                     
+                    // 2. SEND EMAIL NOTIFICATION (EMAILJS)
+                    const emailData = {
+                        customer_name: name,
+                        customer_phone: phone,
+                        customer_email: email,
+                        shoot_date: shootDate,
+                        shoot_time: shootTime,
+                        location: place + " " + pincode,
+                        plan: platform,
+                        vision: vision
+                    };
+
+                    // Send to Admin
+                    emailjs.send("service_so4a3gn", "template_wlcejio", emailData)
+                        .then(() => console.log("Email sent successfully!"))
+                        .catch((err) => console.error("Email failed:", err));
+
+                    // 3. UI FEEDBACK
                     submitBtn.innerHTML = 'CONFIRMED';
                     contactForm.reset();
-                    // Reload profile details into form
                     loadProfile(currentUser.uid); 
                     
                     setTimeout(() => {
                         submitBtn.innerHTML = originalText;
                         submitBtn.disabled = false;
-                        if(confirm("Booking Received! View bookings?")) openModal(bookingsModal);
+                        if(confirm("Booking Received! Check your email. View bookings?")) openModal(bookingsModal);
                     }, 1500);
+
                 } catch (error) {
                     console.error("Error", error);
                     submitBtn.disabled = false;
@@ -321,22 +347,20 @@
             });
         }
 
-        // --- Load Bookings (Bug Fix Applied) ---
+        // --- Load Bookings ---
         function loadBookings(userId) {
             if (!db) return;
-            if (bookingsUnsubscribe) bookingsUnsubscribe(); // Detach previous listener if exists
+            if (bookingsUnsubscribe) bookingsUnsubscribe(); 
 
             const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
             const q = query(bookingsRef, where("uid", "==", userId));
             
-            // Added { includeMetadataChanges: true } to see local writes immediately
             bookingsUnsubscribe = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
                 const bookings = [];
                 snapshot.forEach((doc) => { 
                     bookings.push({ id: doc.id, ...doc.data() }); 
                 });
                 
-                // Sort client side
                 bookings.sort((a,b) => {
                     const tA = a.createdAt?.seconds || 0;
                     const tB = b.createdAt?.seconds || 0;
@@ -360,7 +384,6 @@
             const past = bookings.filter(b => b.status !== 'Upcoming');
             
             const createCard = (booking) => {
-                // Use the user-selected date if available, otherwise 'Today'
                 const displayDate = booking.shootDate ? new Date(booking.shootDate).toLocaleDateString() : 'Date Pending';
                 const displayTime = booking.shootTime || '';
                 
@@ -384,7 +407,6 @@
             if (past.length) html += `<h3 class="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-3 mt-6 pl-1">History</h3>${past.map(createCard).join('')}`;
             bookingsList.innerHTML = html;
             
-            // Re-initialize icons for new content
             if(window.lucide) lucide.createIcons();
         }
     </script>
@@ -416,7 +438,6 @@
             100%  {opacity: 1; transform: translateY(0)}
         }
         
-        /* Date Picker Customization (Basic) */
         input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
         input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
     </style>
