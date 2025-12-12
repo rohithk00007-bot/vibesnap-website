@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeSnap | Viral Content Studio</title>
+    
+    <style>
+        body { background-color: #000000; color: #ffffff; }
+    </style>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, where, onSnapshot, orderBy, serverTimestamp, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- FIREBASE CONFIGURATION ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyD-tG7cRV5v9k5fb_QE2dLo0CnYEHtV_wE",
+            authDomain: "vibesnap-live.firebaseapp.com",
+            projectId: "vibesnap-live",
+            storageBucket: "vibesnap-live.firebasestorage.app",
+            messagingSenderId: "558903357110",
+            appId: "1:558903357110:web:7f602f38208645eca3c017"
+        };
+        
+        let app, auth, db;
+        try {
+             app = initializeApp(firebaseConfig);
+             auth = getAuth(app);
+             db = getFirestore(app);
+        } catch (e) {
+            console.error("Firebase init error:", e);
+        }
+        
+        // Ensure this matches your Admin Panel ID
+        const appId = "vibesnap-live"; 
+
+        // --- DOM Elements ---
+        const menuBtn = document.getElementById('menu-btn');
+        const mobileMenu = document.getElementById('mobile-menu');
+        const menuOverlay = document.getElementById('menu-overlay');
+        const closeMenuBtn = document.getElementById('close-menu-btn');
+        
+        const bookingsModal = document.getElementById('bookings-modal');
+        const closeBookingsBtn = document.getElementById('close-bookings-btn');
+        const bookingsList = document.getElementById('bookings-list');
+        
+        const profileModal = document.getElementById('profile-modal');
+        const closeProfileBtn = document.getElementById('close-profile-btn');
+        
+        const csModal = document.getElementById('cs-modal');
+        const closeCsBtn = document.getElementById('close-cs-btn');
+
+        const contactForm = document.getElementById('contactForm');
+        
+        let currentUser = null;
+        let bookingsUnsubscribe = null;
+
+        // --- FIXED MENU LOGIC ---
+        function toggleMenu() {
+            const isClosed = mobileMenu.classList.contains('translate-x-full');
+            if (isClosed) {
+                mobileMenu.classList.remove('translate-x-full');
+                menuOverlay.classList.remove('hidden');
+                setTimeout(() => menuOverlay.classList.remove('opacity-0'), 10);
+            } else {
+                mobileMenu.classList.add('translate-x-full');
+                menuOverlay.classList.add('opacity-0');
+                setTimeout(() => menuOverlay.classList.add('hidden'), 300);
+            }
+        }
+
+        if (menuBtn) menuBtn.addEventListener('click', toggleMenu);
+        if (closeMenuBtn) closeMenuBtn.addEventListener('click', toggleMenu);
+        if (menuOverlay) menuOverlay.addEventListener('click', toggleMenu);
+
+        // --- Navigation Bar Scroll Effect ---
+        let lastScrollY = window.scrollY;
+        const navBar = document.getElementById('main-nav');
+        window.addEventListener('scroll', () => {
+            const currentScrollY = window.scrollY;
+            if (currentScrollY > lastScrollY) {
+                navBar.classList.remove('backdrop-blur-xl', 'bg-black/40');
+                navBar.classList.add('backdrop-blur-none', 'bg-black/90'); 
+            } else {
+                navBar.classList.remove('backdrop-blur-none', 'bg-black/90');
+                navBar.classList.add('backdrop-blur-xl', 'bg-black/40');
+            }
+            lastScrollY = currentScrollY;
+        });
+
+        // --- Intersection Observer ---
+        const observerOptions = { threshold: 0.15, rootMargin: "0px 0px -50px 0px" };
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) entry.target.classList.add('active');
+                else entry.target.classList.remove('active');
+            });
+        }, observerOptions);
+        document.querySelectorAll('.scroll-reveal').forEach(el => observer.observe(el));
+
+        // --- Slider Logic ---
+        let currentSlide = 0;
+        const totalSlides = 3;
+        const track = document.getElementById('slider-track');
+        let slideInterval;
+        function updateSlider() { if(track) track.style.transform = `translateX(-${currentSlide * 100}%)`; }
+        function nextSlide() { currentSlide = (currentSlide + 1) % totalSlides; updateSlider(); }
+        function prevSlide() { currentSlide = (currentSlide - 1 + totalSlides) % totalSlides; updateSlider(); }
+        function startSlider() { if (slideInterval) clearInterval(slideInterval); slideInterval = setInterval(nextSlide, 3000); }
+
+        if(track) {
+            startSlider();
+            document.getElementById('prev-slide').addEventListener('click', () => { prevSlide(); startSlider(); });
+            document.getElementById('next-slide').addEventListener('click', () => { nextSlide(); startSlider(); });
+        }
+
+        // --- Auth & User State ---
+        const loginBtn = document.getElementById('login-btn');
+        const userSection = document.getElementById('user-section');
+        const guestSection = document.getElementById('guest-section');
+        const userNameDisplay = document.getElementById('user-name');
+        const logoutBtn = document.getElementById('logout-btn');
+        const myBookingsBtn = document.getElementById('my-bookings-btn');
+        const myProfileBtn = document.getElementById('my-profile-btn');
+        const csBtn = document.getElementById('cs-btn');
+
+        if (auth) {
+            onAuthStateChanged(auth, async (user) => {
+                currentUser = user;
+                if (user) {
+                    guestSection.classList.add('hidden');
+                    userSection.classList.remove('hidden');
+                    const firstName = user.displayName ? user.displayName.split(' ')[0] : 'Creator';
+                    if(userNameDisplay) userNameDisplay.textContent = `Hey, ${firstName}`;
+                    
+                    // Load data immediately
+                    loadBookings(user.uid);
+                    loadProfile(user.uid);
+                } else {
+                    guestSection.classList.remove('hidden');
+                    userSection.classList.add('hidden');
+                    if (bookingsList) bookingsList.innerHTML = '';
+                    if (bookingsUnsubscribe) bookingsUnsubscribe(); // Clean up listener
+                }
+            });
+
+            if (loginBtn) {
+                loginBtn.addEventListener('click', async () => {
+                    const provider = new GoogleAuthProvider();
+                    try { await signInWithPopup(auth, provider); } 
+                    catch (error) { alert("Login failed: " + error.message); }
+                });
+            }
+            if (logoutBtn) logoutBtn.addEventListener('click', () => { signOut(auth); });
+        }
+
+        // --- Modals Logic ---
+        function openModal(modal) {
+            modal.classList.remove('hidden');
+            toggleMenu(); // Close sidebar if open
+        }
+        function closeModal(modal) {
+            modal.classList.add('hidden');
+        }
+
+        if (myBookingsBtn) myBookingsBtn.addEventListener('click', () => openModal(bookingsModal));
+        if (closeBookingsBtn) closeBookingsBtn.addEventListener('click', () => closeModal(bookingsModal));
+
+        if (myProfileBtn) myProfileBtn.addEventListener('click', () => openModal(profileModal));
+        if (closeProfileBtn) closeProfileBtn.addEventListener('click', () => closeModal(profileModal));
+
+        if (csBtn) csBtn.addEventListener('click', () => openModal(csModal));
+        if (closeCsBtn) closeCsBtn.addEventListener('click', () => closeModal(csModal));
+
+        // --- Profile Management ---
+        async function loadProfile(uid) {
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', uid, 'profile');
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    document.getElementById('profile-name').value = data.name || '';
+                    document.getElementById('profile-phone').value = data.phone || '';
+                    document.getElementById('profile-email').value = data.email || '';
+                    
+                    // Also auto-fill booking form
+                    if(document.getElementById('name-input')) document.getElementById('name-input').value = data.name || '';
+                    if(document.getElementById('phone-input')) document.getElementById('phone-input').value = data.phone || '';
+                    if(document.getElementById('email-input')) document.getElementById('email-input').value = data.email || '';
+                }
+            } catch (e) { console.error("Profile load error", e); }
+        }
+
+        const profileForm = document.getElementById('profileForm');
+        if(profileForm) {
+            profileForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if(!currentUser) return;
+                const btn = document.getElementById('save-profile-btn');
+                btn.innerHTML = 'Saving...';
+                
+                const name = document.getElementById('profile-name').value;
+                const phone = document.getElementById('profile-phone').value;
+                const email = document.getElementById('profile-email').value;
+
+                try {
+                    await setDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'profile'), {
+                        name, phone, email, updatedAt: serverTimestamp()
+                    });
+                    btn.innerHTML = 'Saved!';
+                    setTimeout(() => { btn.innerHTML = 'Update Details'; }, 2000);
+                } catch(e) {
+                    console.error(e);
+                    btn.innerHTML = 'Error';
+                }
+            });
+        }
+
+        // --- Booking Submission ---
+        if (contactForm) {
+            contactForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if (!auth || !currentUser) {
+                    alert("Please sign in from the menu to book!");
+                    toggleMenu();
+                    return;
+                }
+                const submitBtn = document.getElementById('submitBtn');
+                const originalText = submitBtn.innerHTML;
+                submitBtn.innerHTML = 'PROCESSING...';
+                submitBtn.disabled = true;
+
+                // Gather Data
+                const platform = document.getElementById('platform-select').value;
+                const vision = document.getElementById('vision-input').value;
+                const name = document.getElementById('name-input').value;
+                const phone = document.getElementById('phone-input').value;
+                const email = document.getElementById('email-input').value;
+                const place = document.getElementById('place-input').value;
+                const pincode = document.getElementById('pincode-input').value;
+                
+                // NEW: Gather Date & Time
+                const shootDate = document.getElementById('date-input').value;
+                const shootTime = document.getElementById('time-input').value;
+
+                try {
+                    // STORE IN PUBLIC COLLECTION FOR ADMIN ACCESS
+                    const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
+                    
+                    await addDoc(bookingsRef, {
+                        uid: currentUser.uid, // Reference to who booked it
+                        platform: platform,
+                        vision: vision,
+                        customerName: name,
+                        customerPhone: phone,
+                        customerEmail: email,
+                        locationPlace: place,
+                        locationPincode: pincode,
+                        shootDate: shootDate, // New Field
+                        shootTime: shootTime, // New Field
+                        status: 'Upcoming', 
+                        createdAt: serverTimestamp(),
+                        // Backup string date for display if timestamp isn't ready
+                        displayDate: new Date().toLocaleDateString() 
+                    });
+                    
+                    submitBtn.innerHTML = 'CONFIRMED';
+                    contactForm.reset();
+                    // Reload profile details into form
+                    loadProfile(currentUser.uid); 
+                    
+                    setTimeout(() => {
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                        if(confirm("Booking Received! View bookings?")) openModal(bookingsModal);
+                    }, 1500);
+                } catch (error) {
+                    console.error("Error", error);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = 'ERROR - TRY AGAIN';
+                    alert("Error: " + error.message);
+                    setTimeout(() => { submitBtn.innerHTML = originalText; }, 2000);
+                }
+            });
+        }
+
+        // --- Customer Service Issue Submission ---
+        const csForm = document.getElementById('csForm');
+        if(csForm) {
+            csForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if(!currentUser) return;
+                const btn = document.getElementById('cs-submit-btn');
+                btn.innerHTML = 'Sending...';
+                const issue = document.getElementById('cs-issue').value;
+                
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'issues'), {
+                        uid: currentUser.uid,
+                        issue: issue,
+                        userEmail: currentUser.email,
+                        status: 'Open',
+                        createdAt: serverTimestamp()
+                    });
+                    btn.innerHTML = 'Sent!';
+                    document.getElementById('cs-issue').value = '';
+                    setTimeout(() => { 
+                        btn.innerHTML = 'Submit Ticket'; 
+                        closeModal(csModal);
+                        alert("We have received your issue. Our team will contact you shortly.");
+                    }, 1500);
+                } catch(e) {
+                    console.error(e);
+                    btn.innerHTML = 'Error';
+                }
+            });
+        }
+
+        // --- Load Bookings (Bug Fix Applied) ---
+        function loadBookings(userId) {
+            if (!db) return;
+            if (bookingsUnsubscribe) bookingsUnsubscribe(); // Detach previous listener if exists
+
+            const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
+            const q = query(bookingsRef, where("uid", "==", userId));
+            
+            // Added { includeMetadataChanges: true } to see local writes immediately
+            bookingsUnsubscribe = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+                const bookings = [];
+                snapshot.forEach((doc) => { 
+                    bookings.push({ id: doc.id, ...doc.data() }); 
+                });
+                
+                // Sort client side
+                bookings.sort((a,b) => {
+                    const tA = a.createdAt?.seconds || 0;
+                    const tB = b.createdAt?.seconds || 0;
+                    return tB - tA;
+                });
+                
+                renderBookings(bookings);
+            }, (error) => console.error("Booking Load Error:", error));
+        }
+
+        function renderBookings(bookings) {
+            if (!bookingsList) return;
+            bookingsList.innerHTML = '';
+            
+            if (bookings.length === 0) {
+                bookingsList.innerHTML = `<div class="text-center text-zinc-500 py-10"><p>No bookings yet.</p></div>`;
+                return;
+            }
+            
+            const upcoming = bookings.filter(b => b.status === 'Upcoming');
+            const past = bookings.filter(b => b.status !== 'Upcoming');
+            
+            const createCard = (booking) => {
+                // Use the user-selected date if available, otherwise 'Today'
+                const displayDate = booking.shootDate ? new Date(booking.shootDate).toLocaleDateString() : 'Date Pending';
+                const displayTime = booking.shootTime || '';
+                
+                return `
+                <div class="bg-zinc-900 border border-zinc-800 p-4 rounded-lg mb-4 flex justify-between items-center relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-red-600"></div>
+                    <div class="pl-3">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-red-500 text-[10px] font-bold uppercase tracking-widest border border-red-900/50 px-1.5 rounded">${booking.platform}</span>
+                            <span class="text-zinc-500 text-[10px] uppercase font-bold">${displayDate} ${displayTime}</span>
+                        </div>
+                        <div class="text-white text-sm font-bold italic">${booking.vision.substring(0,30)}...</div>
+                        <div class="text-zinc-500 text-xs mt-1 flex items-center gap-1"><i data-lucide="map-pin" class="w-3 h-3"></i> ${booking.locationPlace || 'Location Pending'}</div>
+                    </div>
+                    <span class="text-xs bg-red-900/50 text-red-300 px-2 py-1 rounded border border-red-800 font-medium">${booking.status}</span>
+                </div>`;
+            };
+            
+            let html = '';
+            if (upcoming.length) html += `<h3 class="text-white text-xs font-bold uppercase tracking-widest mb-3 pl-1">Upcoming Shoots</h3>${upcoming.map(createCard).join('')}`;
+            if (past.length) html += `<h3 class="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-3 mt-6 pl-1">History</h3>${past.map(createCard).join('')}`;
+            bookingsList.innerHTML = html;
+            
+            // Re-initialize icons for new content
+            if(window.lucide) lucide.createIcons();
+        }
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&display=swap');
+        
+        body { font-family: 'Montserrat', sans-serif; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #000000; }
+        ::-webkit-scrollbar-thumb { background: #333; }
+        ::-webkit-scrollbar-thumb:hover { background: #dc2626; }
+        .metallic-text { background: linear-gradient(to bottom, #ffffff, #9ca3af); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        
+        .scroll-reveal { opacity: 0; transform: translateY(60px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); will-change: opacity, transform; }
+        .scroll-reveal.active { opacity: 1; transform: translateY(0); }
+        .delay-100 { transition-delay: 100ms; }
+        .delay-200 { transition-delay: 200ms; }
+        
+        .glass-btn { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); }
+        .glass-btn:hover { background: rgba(220, 38, 38, 0.2); border-color: rgba(220, 38, 38, 0.5); }
+
+        /* Accordion Styles */
+        details > summary { list-style: none; }
+        details > summary::-webkit-details-marker { display: none; }
+        details[open] summary ~ * { animation: sweep .3s ease-in-out; }
+        @keyframes sweep {
+            0%    {opacity: 0; transform: translateY(-10px)}
+            100%  {opacity: 1; transform: translateY(0)}
+        }
+        
+        /* Date Picker Customization (Basic) */
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+    </style>
+</head>
+<body class="bg-black text-white selection:bg-red-600 selection:text-white overflow-x-hidden">
+
+    <!-- LIQUID GLASS RECTANGLE HEADER -->
+    <nav id="main-nav" class="fixed top-0 left-0 right-0 h-20 z-50 transition-all duration-500 ease-in-out border-b border-white/5 backdrop-blur-xl bg-black/40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full">
+            <div class="flex items-center justify-between h-full">
+                <div class="flex items-center gap-0 group cursor-pointer z-50">
+                    <span class="font-black text-2xl tracking-tighter italic metallic-text">VIBE</span>
+                    <div class="relative mx-[-4px] z-10 transform -skew-x-12 group-hover:scale-110 transition-transform duration-200">
+                        <i data-lucide="zap" class="w-10 h-10 text-red-600 fill-red-600 drop-shadow-[0_0_8px_rgba(220,38,38,0.8)]"></i>
+                    </div>
+                    <span class="font-black text-2xl tracking-tighter italic metallic-text">SNAP</span>
+                </div>
+                <button id="menu-btn" class="text-white hover:text-red-500 transition-colors z-50 p-2">
+                    <i data-lucide="menu" class="w-8 h-8"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- BACKDROP OVERLAY -->
+    <div id="menu-overlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[55] hidden opacity-0 transition-opacity duration-300"></div>
+
+    <!-- Slide-Out Menu -->
+    <div id="mobile-menu" class="fixed inset-y-0 right-0 w-80 bg-zinc-950 border-l border-red-900/50 transform translate-x-full transition-transform duration-300 ease-in-out z-[60] shadow-2xl shadow-red-900/20">
+        <div class="p-6 h-full flex flex-col relative">
+            <button id="close-menu-btn" class="absolute top-6 right-6 text-zinc-500 hover:text-white">
+                <i data-lucide="x" class="w-8 h-8"></i>
+            </button>
+            <div class="mt-16 flex-grow">
+                 <div id="guest-section" class="space-y-6">
+                    <div class="text-center mb-8"><h3 class="text-xl font-bold italic text-white mb-2">Join the Movement</h3></div>
+                    <button id="login-btn" class="w-full py-4 bg-white text-black font-black uppercase tracking-widest hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2">Sign In <i data-lucide="log-in" class="w-4 h-4"></i></button>
+                </div>
+                <div id="user-section" class="hidden space-y-4">
+                    <div class="flex items-center gap-4 mb-6 bg-zinc-900 p-4 rounded-lg border border-zinc-800">
+                        <div class="w-12 h-12 rounded-full bg-red-600 flex items-center justify-center text-xl font-bold"><i data-lucide="user" class="w-6 h-6"></i></div>
+                        <div><div id="user-name" class="font-bold text-white">Hey, Creator</div></div>
+                    </div>
+                    
+                    <button id="my-profile-btn" class="w-full py-3 bg-zinc-800 text-white font-bold uppercase tracking-widest hover:bg-zinc-700 transition-colors flex items-center justify-between px-4">
+                        My Profile <i data-lucide="user-cog" class="w-5 h-5"></i>
+                    </button>
+                    
+                    <button id="my-bookings-btn" class="w-full py-3 bg-zinc-800 text-white font-bold uppercase tracking-widest hover:bg-zinc-700 transition-colors flex items-center justify-between px-4">
+                        My Bookings <i data-lucide="calendar" class="w-5 h-5"></i>
+                    </button>
+
+                    <button id="cs-btn" class="w-full py-3 bg-zinc-800 text-white font-bold uppercase tracking-widest hover:bg-zinc-700 transition-colors flex items-center justify-between px-4">
+                        Customer Service <i data-lucide="headphones" class="w-5 h-5"></i>
+                    </button>
+
+                    <button id="logout-btn" class="w-full py-3 mt-4 text-red-500 font-bold uppercase tracking-widest hover:text-red-400 text-sm border border-red-900/30 flex items-center justify-center gap-2">
+                        Sign Out <i data-lucide="log-out" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- My Bookings Modal -->
+    <div id="bookings-modal" class="fixed inset-0 bg-black/95 z-[70] hidden backdrop-blur-sm overflow-hidden flex flex-col">
+        <div class="max-w-2xl w-full mx-auto h-full flex flex-col p-6">
+            <div class="flex justify-between items-center mb-8 mt-10">
+                <h2 class="text-2xl font-black italic uppercase text-white">Your <span class="text-red-600">Bookings</span></h2>
+                <button id="close-bookings-btn" class="text-zinc-500 hover:text-white"><i data-lucide="x" class="w-8 h-8"></i></button>
+            </div>
+            <div class="flex-grow overflow-y-auto pr-2 pb-20 custom-scrollbar">
+                <div id="bookings-list" class="space-y-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div id="profile-modal" class="fixed inset-0 bg-black/95 z-[70] hidden backdrop-blur-sm overflow-hidden flex flex-col">
+        <div class="max-w-md w-full mx-auto h-full flex flex-col p-6">
+            <div class="flex justify-between items-center mb-8 mt-10">
+                <h2 class="text-2xl font-black italic uppercase text-white">My <span class="text-red-600">Profile</span></h2>
+                <button id="close-profile-btn" class="text-zinc-500 hover:text-white"><i data-lucide="x" class="w-8 h-8"></i></button>
+            </div>
+            
+            <div class="flex-grow overflow-y-auto pr-2 pb-20 custom-scrollbar space-y-8">
+                <div class="bg-zinc-900/50 p-6 rounded-xl border border-zinc-800">
+                    <p class="text-xs text-red-500 font-bold uppercase tracking-widest mb-4">Edit Details</p>
+                    <form id="profileForm" class="space-y-4">
+                        <div>
+                            <label class="block text-xs text-zinc-400 uppercase font-bold mb-1">Full Name</label>
+                            <input type="text" id="profile-name" class="w-full bg-black border border-zinc-700 p-3 text-white focus:border-red-600 outline-none" placeholder="Update Name">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-zinc-400 uppercase font-bold mb-1">Phone Number</label>
+                            <input type="tel" id="profile-phone" class="w-full bg-black border border-zinc-700 p-3 text-white focus:border-red-600 outline-none" placeholder="Update Phone">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-zinc-400 uppercase font-bold mb-1">Email</label>
+                            <input type="email" id="profile-email" class="w-full bg-black border border-zinc-700 p-3 text-white focus:border-red-600 outline-none" placeholder="Update Email">
+                        </div>
+                        <button type="submit" id="save-profile-btn" class="w-full py-3 bg-red-600 font-bold uppercase tracking-widest hover:bg-red-700 transition-colors">Update Details</button>
+                    </form>
+                </div>
+
+                <div class="bg-zinc-900/50 p-6 rounded-xl border border-zinc-800">
+                    <p class="text-xs text-red-500 font-bold uppercase tracking-widest mb-4">VibeSnap Support</p>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-zinc-800 rounded flex items-center justify-center text-red-500"><i data-lucide="mail" class="w-4 h-4"></i></div>
+                            <div>
+                                <p class="text-zinc-400 text-xs uppercase">Email Us</p>
+                                <p class="font-bold">vibesnapteam@gmail.com</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-zinc-800 rounded flex items-center justify-center text-red-500"><i data-lucide="clock" class="w-4 h-4"></i></div>
+                            <div>
+                                <p class="text-zinc-400 text-xs uppercase">Business Hours</p>
+                                <p class="font-bold">Mon-Sat 9:00 AM - 5:00 PM</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer Service Modal -->
+    <div id="cs-modal" class="fixed inset-0 bg-black/95 z-[70] hidden backdrop-blur-sm overflow-hidden flex flex-col">
+        <div class="max-w-md w-full mx-auto h-full flex flex-col p-6">
+            <div class="flex justify-between items-center mb-8 mt-10">
+                <h2 class="text-xl font-black italic uppercase text-white">Customer <span class="text-red-600">Service</span></h2>
+                <button id="close-cs-btn" class="text-zinc-500 hover:text-white"><i data-lucide="x" class="w-8 h-8"></i></button>
+            </div>
+            
+            <div class="bg-zinc-900 p-6 rounded-xl border border-zinc-800">
+                <p class="text-zinc-400 text-sm mb-4">Facing an issue? Describe it below and our support team will get back to you shortly.</p>
+                <form id="csForm" class="space-y-4">
+                    <textarea id="cs-issue" rows="5" class="w-full bg-black border border-zinc-700 p-4 text-white focus:border-red-600 outline-none resize-none" placeholder="Describe your issue here..."></textarea>
+                    <button type="submit" id="cs-submit-btn" class="w-full py-3 bg-white text-black font-bold uppercase tracking-widest hover:bg-zinc-200 transition-colors">Submit Ticket</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hero Section -->
+    <header class="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden min-h-screen flex flex-col justify-center">
+        <div class="absolute top-0 left-1/2 w-full -translate-x-1/2 h-full z-0 pointer-events-none">
+            <div class="absolute top-20 left-[20%] w-64 h-64 bg-red-600/20 rounded-full blur-[100px] animate-pulse"></div>
+            <div class="absolute bottom-20 right-[20%] w-80 h-80 bg-zinc-700/20 rounded-full blur-[80px]"></div>
+            <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div>
+        </div>
+
+        <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center scroll-reveal active">
+            <div class="inline-flex items-center gap-2 px-4 py-2 bg-zinc-900/80 border border-red-900/50 mb-8 transform -skew-x-12">
+                <i data-lucide="zap" class="w-4 h-4 text-red-500 fill-current skew-x-12"></i>
+                <span class="text-sm font-bold text-red-500 tracking-widest uppercase skew-x-12">High Voltage Content</span>
+            </div>
+
+            <h1 class="text-5xl md:text-8xl font-black tracking-tighter mb-6 leading-none italic uppercase">
+                Content That <br>
+                <span class="text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-red-600 to-red-800 drop-shadow-[0_0_25px_rgba(220,38,38,0.5)]">Strikes.</span>
+            </h1>
+            
+            <div class="flex flex-col sm:flex-row justify-center gap-6 scroll-reveal delay-200 mt-12">
+                <a href="#contact" class="px-8 py-4 bg-red-600 text-white font-black text-lg hover:bg-red-700 transition-all flex items-center justify-center gap-2 skew-x-[-10deg] shadow-[0_0_20px_rgba(220,38,38,0.4)]">
+                    <span class="skew-x-[10deg] flex items-center gap-2">Shot on iPhone <i data-lucide="smartphone" class="w-5 h-5"></i></span>
+                </a>
+                <a href="#about" class="px-8 py-4 border border-zinc-700 hover:border-white transition-colors text-lg font-bold flex items-center justify-center gap-2 skew-x-[-10deg] bg-black">
+                    <span class="skew-x-[10deg] flex items-center gap-2 text-white">Reel Maker 🎞️</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Services Section -->
+    <section id="services" class="py-24 bg-zinc-950 relative overflow-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div class="mb-16 text-center scroll-reveal">
+                <span class="text-red-600 font-bold tracking-widest uppercase text-sm mb-2 block">What We Do</span>
+                <h2 class="text-4xl md:text-5xl font-black italic uppercase">We Bring The <span class="text-white">Energy</span></h2>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Card 1 -->
+                <div class="bg-black p-8 border border-zinc-800 hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-100">
+                    <div class="w-14 h-14 bg-zinc-900 border border-zinc-700 flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors">
+                        <i data-lucide="aperture" class="w-7 h-7"></i>
+                    </div>
+                    <h3 class="text-2xl font-black uppercase italic mb-4">Production</h3>
+                    <p class="text-zinc-400 mb-6 font-medium">Professionally calibrated iPhones and high quality footage.</p>
+                </div>
+                <!-- Card 2 -->
+                <div class="bg-black p-8 border border-zinc-800 hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-200">
+                    <div class="w-14 h-14 bg-zinc-900 border border-zinc-700 flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors">
+                        <i data-lucide="zap" class="w-7 h-7"></i>
+                    </div>
+                    <h3 class="text-2xl font-black uppercase italic mb-4">Snappy Edits</h3>
+                    <p class="text-zinc-400 mb-6 font-medium">Fast cuts, glitches, motion graphics, and sound design that keeps eyes glued.</p>
+                </div>
+                <!-- Card 3 -->
+                <div class="bg-black p-8 border border-zinc-800 hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-300">
+                    <div class="w-14 h-14 bg-zinc-900 border border-zinc-700 flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors">
+                        <i data-lucide="crosshair" class="w-7 h-7"></i>
+                    </div>
+                    <h3 class="text-2xl font-black uppercase italic mb-4">Strategy</h3>
+                    <p class="text-zinc-400 mb-6 font-medium">We hack the algorithm. Trend analysis and hook optimization to ensure virality.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="py-24 bg-black">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16 scroll-reveal">
+                <h2 class="text-4xl md:text-6xl font-black italic uppercase text-white">Make Yourself <span class="text-red-600">Viral</span></h2>
+                <p class="text-zinc-400 mt-4 font-medium uppercase tracking-widest">Pricing & Packages</p>
+            </div>
+
+            <div class="grid lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
+                <!-- Hourly Plan -->
+                <div class="p-8 border border-zinc-800 bg-zinc-900/30 scroll-reveal delay-100 hover:border-red-600 transition-colors">
+                    <div class="flex flex-col sm:flex-row justify-between items-start mb-6 gap-4">
+                        <div>
+                            <div class="text-2xl font-black text-white italic uppercase">Hourly Plan</div>
+                            <div class="text-sm font-bold text-red-500 uppercase tracking-widest mt-1">Quick As Lightning</div>
+                        </div>
+                        <div class="text-3xl font-black text-white italic">500/-</div>
+                    </div>
+                    <p class="text-zinc-400 mb-6 italic">"Fast and perfect."</p>
+                    <div class="space-y-4 mb-8 text-sm font-bold">
+                        <div class="flex gap-3"><i data-lucide="check" class="w-5 h-5 text-red-600"></i> <span class="text-zinc-300">1 Edited Reel</span></div>
+                        <div class="flex gap-3"><i data-lucide="smartphone" class="w-5 h-5 text-red-600"></i> <span class="text-zinc-300">Shot On iPhone</span></div>
+                        <div class="flex gap-3"><i data-lucide="clock" class="w-5 h-5 text-red-600"></i> <span class="text-zinc-300">Fast Delivery (10-15 min)</span></div>
+                        <div class="flex gap-3"><i data-lucide="award" class="w-5 h-5 text-red-600"></i> <span class="text-zinc-300">Trained & Certified Reel Maker</span></div>
+                        <div class="flex gap-3"><i data-lucide="check" class="w-5 h-5 text-red-600"></i> <span class="text-zinc-300">VibeSnap Branding Included</span></div>
+                    </div>
+                    <a href="#contact" class="block w-full py-4 border border-zinc-600 text-center hover:bg-zinc-800 transition-colors uppercase font-black tracking-widest text-white">Book Now 🚀</a>
+                </div>
+                <!-- Half Day Plan -->
+                <div class="p-8 border-2 border-red-600 bg-black relative shadow-[0_0_30px_rgba(220,38,38,0.15)] scroll-reveal delay-200">
+                     <div class="absolute top-0 right-0 bg-red-600 text-black px-4 py-1 font-black uppercase text-xs tracking-wide">Best Value</div>
+                    <div class="flex flex-col sm:flex-row justify-between items-start mb-6 gap-4">
+                        <div>
+                            <div class="text-2xl font-black text-white italic uppercase">Half Day Plan</div>
+                            <div class="text-sm font-bold text-red-500 uppercase tracking-widest mt-1">Ideal for Medium - Long Events</div>
+                        </div>
+                        <div class="text-3xl font-black text-white italic">1000/-</div>
+                    </div>
+                    <p class="text-zinc-400 mb-6 italic">"For marriages & parties who need more time."</p>
+                    <div class="space-y-4 mb-8 text-sm font-bold">
+                        <div class="flex gap-3"><i data-lucide="check" class="w-5 h-5 text-red-600"></i> <span class="text-white">Up to 3 Hour Shoot</span></div>
+                        <div class="flex gap-3"><i data-lucide="layers" class="w-5 h-5 text-red-600"></i> <span class="text-white">2 Edited Reels</span></div>
+                         <div class="flex gap-3"><i data-lucide="smartphone" class="w-5 h-5 text-red-600"></i> <span class="text-white">Shot On iPhone</span></div>
+                        <div class="flex gap-3"><i data-lucide="clock" class="w-5 h-5 text-red-600"></i> <span class="text-white">Fast Delivery (10-15 min post shoot)</span></div>
+                        <div class="flex gap-3"><i data-lucide="check" class="w-5 h-5 text-red-600"></i> <span class="text-white">VibeSnap Branding Included</span></div>
+                    </div>
+                    <a href="#contact" class="block w-full py-4 bg-red-600 text-white font-black uppercase tracking-widest text-center hover:bg-red-700 transition-colors">Book Now 🔥</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Get To Know Us (Slider) -->
+    <section id="about" class="py-24 bg-black relative border-y border-zinc-900">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-12 scroll-reveal">
+                <h2 class="text-3xl md:text-5xl font-black italic uppercase text-white">Get To Know <span class="text-red-600">Us</span></h2>
+            </div>
+
+            <!-- Slider Container -->
+            <div class="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-2xl shadow-red-900/10 scroll-reveal delay-100">
+                
+                <!-- Track -->
+                <div id="slider-track" class="flex transition-transform duration-500 ease-in-out w-full">
+                    
+                    <!-- Slide 1: Who we are -->
+                    <div class="min-w-full flex-shrink-0 p-8 flex flex-col items-center justify-center text-center">
+                        <i data-lucide="users" class="w-10 h-10 text-red-600 mb-3"></i>
+                        <h3 class="text-lg font-black uppercase italic text-white mb-2">Who are we?</h3>
+                        <p class="text-sm text-zinc-300 max-w-xs font-medium leading-relaxed">
+                            "We are VibeSnap delivering high quality fast and perfect reels."
+                        </p>
+                    </div>
+
+                    <!-- Slide 2: Content Storage -->
+                    <div class="min-w-full flex-shrink-0 p-8 flex flex-col items-center justify-center text-center">
+                        <i data-lucide="hard-drive" class="w-10 h-10 text-red-600 mb-3"></i>
+                        <h3 class="text-lg font-black uppercase italic text-white mb-2">Content Storage</h3>
+                        <p class="text-sm text-zinc-300 max-w-xs font-medium leading-relaxed">
+                            "We store your raw file and videos upto 5 months ensuring safety for your videos even if you lost it."
+                        </p>
+                    </div>
+
+                    <!-- Slide 3: Customer Care (Centered) -->
+                    <div class="min-w-full flex-shrink-0 p-8 flex flex-col items-center justify-center text-center">
+                        <i data-lucide="head-phones" class="w-10 h-10 text-red-600 mb-3"></i>
+                        <h3 class="text-lg font-black uppercase italic text-white mb-2">Customer Care</h3>
+                        <p class="text-sm text-zinc-300 max-w-xs font-medium mb-4 leading-relaxed mx-auto">
+                            "Always here to help you go viral."
+                        </p>
+                        <div class="flex justify-center w-full">
+                            <a href="#contact" class="glass-btn px-6 py-2 text-white font-bold uppercase text-xs tracking-wider rounded-full transition-all">Contact Us</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Glass Buttons -->
+                <button id="prev-slide" class="absolute top-1/2 left-2 -translate-y-1/2 w-10 h-10 glass-btn text-white flex items-center justify-center rounded-full transition-all"><i data-lucide="chevron-left" class="w-6 h-6"></i></button>
+                <button id="next-slide" class="absolute top-1/2 right-2 -translate-y-1/2 w-10 h-10 glass-btn text-white flex items-center justify-center rounded-full transition-all"><i data-lucide="chevron-right" class="w-6 h-6"></i></button>
+
+                <!-- Indicators -->
+                <div class="absolute bottom-4 left-0 right-0 flex justify-center gap-2">
+                    <div class="w-1.5 h-1.5 rounded-full bg-red-600 shadow-[0_0_10px_red]"></div>
+                    <div class="w-1.5 h-1.5 rounded-full bg-zinc-600"></div>
+                    <div class="w-1.5 h-1.5 rounded-full bg-zinc-600"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA / Contact Section -->
+    <section id="contact" class="py-24 relative overflow-hidden">
+         <div class="absolute inset-0 bg-red-900/10 z-0"></div>
+         <div class="absolute bottom-0 right-0 w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[100px]"></div>
+
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 scroll-reveal">
+            <div class="bg-zinc-900/80 p-8 md:p-12 border border-zinc-800 backdrop-blur-sm rounded-xl">
+                <div class="text-center mb-10">
+                    <h2 class="text-3xl font-black uppercase italic mb-2">Book Your <span class="text-red-600">Shoot</span></h2>
+                    <p class="text-zinc-400">Sign in & fill the details to confirm your VibeSnap Creator.</p>
+                </div>
+
+                <form id="contactForm" class="space-y-6">
+                    
+                    <!-- New: Contact Details -->
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div class="md:col-span-2">
+                             <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Full Name</label>
+                             <input type="text" id="name-input" required class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium" placeholder="Your Name">
+                        </div>
+                         <div>
+                             <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Phone Number</label>
+                             <input type="tel" id="phone-input" required class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium" placeholder="+91 XXXXX XXXXX">
+                        </div>
+                        <div>
+                             <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Email Address</label>
+                             <input type="email" id="email-input" required class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium" placeholder="you@example.com">
+                        </div>
+                    </div>
+                    
+                    <!-- NEW DATE & TIME SECTION -->
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Shoot Date</label>
+                            <input type="date" id="date-input" required class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Preferred Time</label>
+                            <input type="time" id="time-input" required class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium">
+                        </div>
+                    </div>
+
+                    <!-- Location Details -->
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Shoot Location (Place/Area)</label>
+                            <input type="text" id="place-input" required class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium" placeholder="e.g. Jubilee Hills, Cafe X">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Pincode</label>
+                            <input type="number" id="pincode-input" required class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium" placeholder="500033">
+                        </div>
+                    </div>
+
+                    <div class="grid md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Select Plan</label>
+                            <select id="platform-select" class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium appearance-none">
+                                <option value="Hourly Plan">Hourly Plan (500/-)</option>
+                                <option value="Half Day Plan">Half Day Plan (1000/-)</option>
+                                <option value="Custom Project">Custom Project</option>
+                            </select>
+                        </div>
+                        <div>
+                             <label class="block text-xs font-bold text-red-500 uppercase tracking-widest mb-2">Vision / Notes</label>
+                             <input type="text" id="vision-input" required class="w-full bg-black border border-zinc-700 text-white px-4 py-3 focus:outline-none focus:border-red-600 transition-colors font-medium" placeholder="Describe your idea...">
+                        </div>
+                    </div>
+
+                    <button type="submit" id="submitBtn" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-4 uppercase tracking-widest shadow-lg transform transition-all hover:scale-[1.01] hover:shadow-red-900/50 mt-6">Confirm Booking</button>
+                </form>
+
+                <!-- FAQ SECTION -->
+                <div class="mt-16 pt-12 border-t border-zinc-800">
+                    <h3 class="text-2xl font-black uppercase italic mb-8 text-center text-white">Frequently Asked <span class="text-red-600">Questions</span></h3>
+                    
+                    <div class="space-y-4">
+                        <!-- FAQ 1 -->
+                        <details class="group bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+                            <summary class="flex justify-between items-center p-4 cursor-pointer hover:bg-zinc-900 transition-colors">
+                                <span class="font-bold text-white uppercase text-sm tracking-wide">Who are we?</span>
+                                <i data-lucide="chevron-down" class="w-5 h-5 text-red-600 transform group-open:rotate-180 transition-transform"></i>
+                            </summary>
+                            <div class="p-4 text-zinc-400 text-sm border-t border-zinc-900 leading-relaxed">
+                                We are VibeSnap, a premium reels making studio. We specialize in shooting, editing, and delivering viral-quality reels in just <span class="text-white font-bold">10-15 minutes</span> after the shoot ends.
+                            </div>
+                        </details>
+
+                        <!-- FAQ 2 -->
+                        <details class="group bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+                            <summary class="flex justify-between items-center p-4 cursor-pointer hover:bg-zinc-900 transition-colors">
+                                <span class="font-bold text-white uppercase text-sm tracking-wide">Why choose us over regular photographers?</span>
+                                <i data-lucide="chevron-down" class="w-5 h-5 text-red-600 transform group-open:rotate-180 transition-transform"></i>
+                            </summary>
+                            <div class="p-4 text-zinc-400 text-sm border-t border-zinc-900 leading-relaxed">
+                                The biggest difference is <span class="text-white font-bold">Speed</span>. Regular photographers can take weeks to deliver edited footage. We deliver the final output in 10-15 minutes, ensuring you can post while the vibe is still fresh.
+                            </div>
+                        </details>
+
+                        <!-- FAQ 3 -->
+                        <details class="group bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+                            <summary class="flex justify-between items-center p-4 cursor-pointer hover:bg-zinc-900 transition-colors">
+                                <span class="font-bold text-white uppercase text-sm tracking-wide">What equipment do we use?</span>
+                                <i data-lucide="chevron-down" class="w-5 h-5 text-red-600 transform group-open:rotate-180 transition-transform"></i>
+                            </summary>
+                            <div class="p-4 text-zinc-400 text-sm border-t border-zinc-900 leading-relaxed">
+                                We shoot exclusively on the <span class="text-white font-bold">latest iPhones</span>. This ensures that "raw", authentic aesthetic that goes viral on TikTok and Reels, combined with professional stabilization and cinematic mode.
+                            </div>
+                        </details>
+
+                        <!-- FAQ 4 -->
+                        <details class="group bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+                            <summary class="flex justify-between items-center p-4 cursor-pointer hover:bg-zinc-900 transition-colors">
+                                <span class="font-bold text-white uppercase text-sm tracking-wide">Cancellation Policy</span>
+                                <i data-lucide="chevron-down" class="w-5 h-5 text-red-600 transform group-open:rotate-180 transition-transform"></i>
+                            </summary>
+                            <div class="p-4 text-zinc-400 text-sm border-t border-zinc-900 leading-relaxed">
+                                You can cancel up to 3 hours before the shoot. If you cancel less than 3 hours before the scheduled time, a <span class="text-red-500 font-bold">cancellation fee of ₹399</span> applies to compensate the creator's time.
+                            </div>
+                        </details>
+
+                         <!-- FAQ 5 -->
+                         <details class="group bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+                            <summary class="flex justify-between items-center p-4 cursor-pointer hover:bg-zinc-900 transition-colors">
+                                <span class="font-bold text-white uppercase text-sm tracking-wide">Are there travel charges?</span>
+                                <i data-lucide="chevron-down" class="w-5 h-5 text-red-600 transform group-open:rotate-180 transition-transform"></i>
+                            </summary>
+                            <div class="p-4 text-zinc-400 text-sm border-t border-zinc-900 leading-relaxed">
+                                Travel is <span class="text-green-500 font-bold">FREE</span> for the first 15km. Beyond 15km, the customer must pay the applicable Rapido/Uber Bike or Petrol fees directly to the creator.
+                            </div>
+                        </details>
+
+                        <!-- FAQ 6 -->
+                        <details class="group bg-zinc-950 border border-zinc-800 rounded-lg overflow-hidden">
+                            <summary class="flex justify-between items-center p-4 cursor-pointer hover:bg-zinc-900 transition-colors">
+                                <span class="font-bold text-white uppercase text-sm tracking-wide">Can I contact the creator directly?</span>
+                                <i data-lucide="chevron-down" class="w-5 h-5 text-red-600 transform group-open:rotate-180 transition-transform"></i>
+                            </summary>
+                            <div class="p-4 text-zinc-400 text-sm border-t border-zinc-900 leading-relaxed">
+                                No. For privacy and security reasons, all communication and bookings must go through VibeSnap first. Once a booking is confirmed, we will connect you.
+                            </div>
+                        </details>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+     <!-- Footer -->
+    <footer class="bg-black border-t border-zinc-900 py-12 text-center text-zinc-600 text-sm font-bold uppercase tracking-widest">
+        <div class="flex justify-center gap-8 mb-8">
+            <a href="#" class="hover:text-red-600 transition-colors"><i data-lucide="instagram" class="w-6 h-6"></i></a>
+            <a href="#" class="hover:text-red-600 transition-colors"><i data-lucide="twitter" class="w-6 h-6"></i></a>
+            <a href="#" class="hover:text-red-600 transition-colors"><i data-lucide="linkedin" class="w-6 h-6"></i></a>
+        </div>
+        <div class="flex items-center justify-center gap-2 mb-4">
+             <span class="metallic-text italic text-lg">VIBE</span> <i data-lucide="zap" class="w-4 h-4 text-red-600 fill-current"></i> <span class="metallic-text italic text-lg">SNAP</span>
+        </div>
+        <p>&copy; 2025 VibeSnap Studio. All rights reserved.</p>
+        
+        <div class="mt-6 flex items-center justify-center gap-2 text-xs normal-case tracking-normal opacity-70 hover:opacity-100 transition-opacity">
+            <span>Made with <span class="text-red-500">♥</span></span>
+        </div>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
