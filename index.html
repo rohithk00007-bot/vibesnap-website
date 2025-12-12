@@ -12,12 +12,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- EMAILJS SDK (NEW) -->
+    <!-- EMAILJS SDK -->
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <script type="text/javascript">
        (function(){
-          // Initialize EmailJS with your Public Key
-          emailjs.init("fIY9vSsQZlJ-Gp3XO");
+          emailjs.init("fIY9vSsQZlJ-Gp3XO"); // Your Public Key
        })();
     </script>
     
@@ -26,7 +25,7 @@
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, query, where, onSnapshot, orderBy, serverTimestamp, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- FIREBASE CONFIGURATION ---
+        // --- FIREBASE CONFIGURATION (LIVE) ---
         const firebaseConfig = {
             apiKey: "AIzaSyD-tG7cRV5v9k5fb_QE2dLo0CnYEHtV_wE",
             authDomain: "vibesnap-live.firebaseapp.com",
@@ -45,7 +44,6 @@
             console.error("Firebase init error:", e);
         }
         
-        // Ensure this matches your Admin Panel ID
         const appId = "vibesnap-live"; 
 
         // --- DOM Elements ---
@@ -147,14 +145,14 @@
                     const firstName = user.displayName ? user.displayName.split(' ')[0] : 'Creator';
                     if(userNameDisplay) userNameDisplay.textContent = `Hey, ${firstName}`;
                     
-                    // Load data immediately
-                    loadBookings(user.uid);
                     loadProfile(user.uid);
+                    // We don't load bookings here anymore to save bandwidth
+                    // We load them when the user clicks the button
                 } else {
                     guestSection.classList.remove('hidden');
                     userSection.classList.add('hidden');
                     if (bookingsList) bookingsList.innerHTML = '';
-                    if (bookingsUnsubscribe) bookingsUnsubscribe(); // Clean up listener
+                    if (bookingsUnsubscribe) bookingsUnsubscribe(); 
                 }
             });
 
@@ -168,16 +166,29 @@
             if (logoutBtn) logoutBtn.addEventListener('click', () => { signOut(auth); });
         }
 
-        // --- Modals Logic ---
+        // --- Modals Logic & BUG FIX: Force Booking Load ---
         function openModal(modal) {
             modal.classList.remove('hidden');
-            toggleMenu(); // Close sidebar if open
+            toggleMenu(); 
         }
         function closeModal(modal) {
             modal.classList.add('hidden');
         }
 
-        if (myBookingsBtn) myBookingsBtn.addEventListener('click', () => openModal(bookingsModal));
+        // *** FIX: Load Bookings ON CLICK ***
+        if (myBookingsBtn) {
+            myBookingsBtn.addEventListener('click', () => {
+                if (currentUser) {
+                    // Force reload bookings every time button is clicked
+                    console.log("Loading bookings for:", currentUser.uid);
+                    loadBookings(currentUser.uid);
+                } else {
+                    alert("Please sign in first.");
+                }
+                openModal(bookingsModal);
+            });
+        }
+        
         if (closeBookingsBtn) closeBookingsBtn.addEventListener('click', () => closeModal(bookingsModal));
 
         if (myProfileBtn) myProfileBtn.addEventListener('click', () => openModal(profileModal));
@@ -197,7 +208,6 @@
                     document.getElementById('profile-phone').value = data.phone || '';
                     document.getElementById('profile-email').value = data.email || '';
                     
-                    // Also auto-fill booking form
                     if(document.getElementById('name-input')) document.getElementById('name-input').value = data.name || '';
                     if(document.getElementById('phone-input')) document.getElementById('phone-input').value = data.phone || '';
                     if(document.getElementById('email-input')) document.getElementById('email-input').value = data.email || '';
@@ -252,8 +262,6 @@
                 const email = document.getElementById('email-input').value;
                 const place = document.getElementById('place-input').value;
                 const pincode = document.getElementById('pincode-input').value;
-                
-                // NEW: Gather Date & Time
                 const shootDate = document.getElementById('date-input').value;
                 const shootTime = document.getElementById('time-input').value;
 
@@ -277,7 +285,7 @@
                         displayDate: new Date().toLocaleDateString() 
                     });
                     
-                    // 2. SEND EMAIL NOTIFICATION (EMAILJS)
+                    // 2. SEND EMAIL NOTIFICATION
                     const emailData = {
                         customer_name: name,
                         customer_phone: phone,
@@ -289,12 +297,11 @@
                         vision: vision
                     };
 
-                    // Send to Admin
                     emailjs.send("service_so4a3gn", "template_wlcejio", emailData)
-                        .then(() => console.log("Email sent successfully!"))
+                        .then(() => console.log("Email sent!"))
                         .catch((err) => console.error("Email failed:", err));
 
-                    // 3. UI FEEDBACK
+                    // 3. SUCCESS
                     submitBtn.innerHTML = 'CONFIRMED';
                     contactForm.reset();
                     loadProfile(currentUser.uid); 
@@ -302,7 +309,10 @@
                     setTimeout(() => {
                         submitBtn.innerHTML = originalText;
                         submitBtn.disabled = false;
-                        if(confirm("Booking Received! Check your email. View bookings?")) openModal(bookingsModal);
+                        if(confirm("Booking Received! View bookings?")) {
+                            if(currentUser) loadBookings(currentUser.uid); // Load immediately on confirm
+                            openModal(bookingsModal);
+                        }
                     }, 1500);
 
                 } catch (error) {
@@ -347,9 +357,16 @@
             });
         }
 
-        // --- Load Bookings ---
+        // --- Load Bookings (ROBUST VERSION) ---
         function loadBookings(userId) {
-            if (!db) return;
+            if (!db) {
+                console.error("Database not initialized");
+                return;
+            }
+            
+            // Show loading state
+            if(bookingsList) bookingsList.innerHTML = '<div class="text-center text-zinc-500 py-10">Loading bookings...</div>';
+
             if (bookingsUnsubscribe) bookingsUnsubscribe(); 
 
             const bookingsRef = collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
@@ -368,7 +385,10 @@
                 });
                 
                 renderBookings(bookings);
-            }, (error) => console.error("Booking Load Error:", error));
+            }, (error) => {
+                console.error("Booking Load Error:", error);
+                if(bookingsList) bookingsList.innerHTML = `<div class="text-center text-red-500 py-10">Error loading bookings.</div>`;
+            });
         }
 
         function renderBookings(bookings) {
@@ -376,7 +396,7 @@
             bookingsList.innerHTML = '';
             
             if (bookings.length === 0) {
-                bookingsList.innerHTML = `<div class="text-center text-zinc-500 py-10"><p>No bookings yet.</p></div>`;
+                bookingsList.innerHTML = `<div class="text-center text-zinc-500 py-10"><p>No bookings found.</p></div>`;
                 return;
             }
             
@@ -395,7 +415,7 @@
                             <span class="text-red-500 text-[10px] font-bold uppercase tracking-widest border border-red-900/50 px-1.5 rounded">${booking.platform}</span>
                             <span class="text-zinc-500 text-[10px] uppercase font-bold">${displayDate} ${displayTime}</span>
                         </div>
-                        <div class="text-white text-sm font-bold italic">${booking.vision.substring(0,30)}...</div>
+                        <div class="text-white text-sm font-bold italic">${booking.vision ? booking.vision.substring(0,30) : 'No Vision Note'}...</div>
                         <div class="text-zinc-500 text-xs mt-1 flex items-center gap-1"><i data-lucide="map-pin" class="w-3 h-3"></i> ${booking.locationPlace || 'Location Pending'}</div>
                     </div>
                     <span class="text-xs bg-red-900/50 text-red-300 px-2 py-1 rounded border border-red-800 font-medium">${booking.status}</span>
