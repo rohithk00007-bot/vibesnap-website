@@ -50,7 +50,7 @@
             } else {
                 loginOverlay.classList.remove('hidden');
                 dashboard.classList.add('hidden');
-                if(user) signOut(auth); // Force logout if unauthorized
+                if(user) signOut(auth); 
             }
         });
 
@@ -65,12 +65,15 @@
             onSnapshot(q, (snapshot) => {
                 const list = document.getElementById(listId);
                 list.innerHTML = '';
+                if(snapshot.empty) {
+                    list.innerHTML = `<div class="text-gray-400 text-sm p-4">No items yet. Add one above!</div>`;
+                    return;
+                }
                 snapshot.forEach(doc => {
                     const data = doc.data();
                     const item = document.createElement('div');
                     item.className = 'bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center group hover:border-gray-300 transition-colors';
                     
-                    // Render based on type
                     let contentHTML = '';
                     if(colName === 'portfolio') {
                         contentHTML = `
@@ -95,7 +98,6 @@
 
                     item.innerHTML = contentHTML;
                     
-                    // Delete Button
                     const delBtn = document.createElement('button');
                     delBtn.className = 'text-gray-400 hover:text-red-600 p-2 transition-colors';
                     delBtn.innerHTML = '<i data-lucide="trash-2" class="w-5 h-5"></i>';
@@ -105,28 +107,36 @@
                     list.appendChild(item);
                 });
                 lucide.createIcons();
+            }, (error) => {
+                // *** ERROR HANDLING ***
+                console.error("Load Error:", error);
+                if (error.message.includes("requires an index")) {
+                    alert("ACTION REQUIRED: Open your browser console (Right Click > Inspect > Console) and click the link to create the database index.");
+                } else if (error.code === 'permission-denied') {
+                    alert("PERMISSION DENIED: Please update your Firestore Rules in the Firebase Console.");
+                } else {
+                    alert("Error loading data: " + error.message);
+                }
             });
         }
 
         async function deleteItem(colName, id) {
-            if(confirm('Are you sure you want to delete this item? It will be removed from the website immediately.')) {
+            if(confirm('Delete this item?')) {
                 await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, id));
             }
         }
 
-        // --- ADD PORTFOLIO (REELS/WORKS) ---
         document.getElementById('portfolioForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
             const originalText = btn.innerHTML;
             btn.innerText = 'Adding...';
             btn.disabled = true;
-            
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'portfolio'), {
                     title: document.getElementById('work-title').value,
-                    image: document.getElementById('work-image').value, // Thumbnail URL
-                    link: document.getElementById('work-link').value,   // Reel URL
+                    image: document.getElementById('work-image').value,
+                    link: document.getElementById('work-link').value,
                     createdAt: serverTimestamp()
                 });
                 e.target.reset();
@@ -136,14 +146,12 @@
             btn.disabled = false;
         });
 
-        // --- ADD REVIEW ---
         document.getElementById('reviewForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
             const originalText = btn.innerHTML;
             btn.innerText = 'Adding...';
             btn.disabled = true;
-
             try {
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'reviews'), {
                     name: document.getElementById('review-name').value,
@@ -161,7 +169,6 @@
 </head>
 <body class="bg-gray-50 font-sans min-h-screen text-gray-800">
 
-    <!-- Login Overlay -->
     <div id="loginOverlay" class="fixed inset-0 bg-white z-50 flex items-center justify-center">
         <div class="text-center p-8 bg-white border border-gray-200 shadow-xl rounded-2xl">
             <div class="mb-4 text-red-600 flex justify-center"><i data-lucide="layout-grid" class="w-12 h-12"></i></div>
@@ -173,7 +180,6 @@
         </div>
     </div>
 
-    <!-- Dashboard -->
     <div id="dashboard" class="hidden max-w-5xl mx-auto p-6">
         <header class="flex justify-between items-center mb-10 py-4 border-b border-gray-200">
             <div class="flex items-center gap-2">
@@ -185,13 +191,11 @@
             </div>
         </header>
 
-        <!-- PORTFOLIO SECTION -->
         <section class="mb-12 bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
             <div class="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
                 <div class="bg-black text-white p-2 rounded"><i data-lucide="clapperboard" class="w-6 h-6"></i></div>
                 <h2 class="text-xl font-bold uppercase tracking-wide">Manage Portfolio</h2>
             </div>
-            
             <form id="portfolioForm" class="grid gap-4 md:grid-cols-3 mb-8">
                 <div class="md:col-span-1">
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Project Title</label>
@@ -210,21 +214,17 @@
                     <i data-lucide="plus-circle" class="w-4 h-4"></i> Add to Website
                 </button>
             </form>
-
             <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Current Work Items</h3>
             <div id="portfolioList" class="grid gap-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
-                <!-- Items injected here -->
                 <div class="text-center text-gray-400 py-4">Loading items...</div>
             </div>
         </section>
 
-        <!-- REVIEWS SECTION -->
         <section class="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
             <div class="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
                 <div class="bg-black text-white p-2 rounded"><i data-lucide="star" class="w-6 h-6"></i></div>
                 <h2 class="text-xl font-bold uppercase tracking-wide">Manage Reviews</h2>
             </div>
-
             <form id="reviewForm" class="grid gap-4 md:grid-cols-4 mb-8">
                 <div class="md:col-span-1">
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Client Name</label>
@@ -246,10 +246,8 @@
                     <i data-lucide="plus-circle" class="w-4 h-4"></i> Add Review
                 </button>
             </form>
-
             <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Current Reviews</h3>
             <div id="reviewsList" class="grid gap-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
-                <!-- Items injected here -->
                 <div class="text-center text-gray-400 py-4">Loading reviews...</div>
             </div>
         </section>
