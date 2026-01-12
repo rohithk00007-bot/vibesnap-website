@@ -23,6 +23,7 @@
         };
         const appId = "vibesnap-live";
         
+        console.log("Initializing Firebase...");
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -35,7 +36,7 @@
         
         if(document.getElementById('googleLoginBtn')){
             document.getElementById('googleLoginBtn').addEventListener('click', () => {
-                signInWithPopup(auth, provider).catch(e => alert(e.message));
+                signInWithPopup(auth, provider).catch(e => alert("Login Error: " + e.message));
             });
         }
         if(document.getElementById('logoutBtn')){
@@ -43,6 +44,7 @@
         }
 
         onAuthStateChanged(auth, (user) => {
+            console.log("Auth State Changed:", user ? user.email : "No User");
             if (user && AUTHORIZED_EMAILS.includes(user.email)) {
                 loginOverlay.classList.add('hidden');
                 dashboard.classList.remove('hidden');
@@ -50,35 +52,44 @@
             } else {
                 loginOverlay.classList.remove('hidden');
                 dashboard.classList.add('hidden');
-                if(user) signOut(auth); 
+                if(user && !AUTHORIZED_EMAILS.includes(user.email)) {
+                    alert("Access Denied: Email not authorized.");
+                    signOut(auth); 
+                }
             }
         });
 
         // --- CONTENT LOGIC ---
         function loadContent() {
+            console.log("Starting to load content...");
             loadCollection('portfolio', 'portfolioList');
             loadCollection('reviews', 'reviewsList');
         }
 
         function loadCollection(colName, listId) {
             const list = document.getElementById(listId);
-            // FIX: Removed orderBy() from query to prevent Index errors. Sorting is done in JS below.
+            list.innerHTML = `<div class="text-blue-600 text-center py-4">Connecting to ${colName}...</div>`;
+
+            // Note: Removed orderBy to fix potential Index errors causing "Loading" hang
             const q = query(collection(db, 'artifacts', appId, 'public', 'data', colName));
             
+            console.log(`Setting up listener for: artifacts/${appId}/public/data/${colName}`);
+
             onSnapshot(q, (snapshot) => {
+                console.log(`Received snapshot for ${colName}: ${snapshot.size} items`);
                 list.innerHTML = '';
+                
                 if(snapshot.empty) {
                     list.innerHTML = `<div class="text-gray-400 text-sm p-4">No items yet. Add one above!</div>`;
                     return;
                 }
 
-                // FIX: Manual Sort (Newest First)
+                // Manual Sort (Newest First) to avoid index requirement
                 const items = [];
                 snapshot.forEach(doc => {
                     items.push({ id: doc.id, ...doc.data() });
                 });
                 
-                // Sort by createdAt (handling potential nulls for brand new items)
                 items.sort((a, b) => {
                     const timeA = a.createdAt?.seconds || 0;
                     const timeB = b.createdAt?.seconds || 0;
@@ -94,10 +105,10 @@
                         contentHTML = `
                             <div class="flex items-center gap-4">
                                 <div class="w-16 h-16 bg-gray-100 rounded-md overflow-hidden border border-gray-200">
-                                    <img src="${data.image}" class="w-full h-full object-cover" onerror="this.src='https://via.placeholder.com/150'">
+                                    <img src="${data.image}" class="w-full h-full object-cover" onerror="this.src='https://via.placeholder.com/150?text=Error'">
                                 </div>
                                 <div>
-                                    <p class="font-bold text-gray-800">${data.title}</p>
+                                    <p class="font-bold text-gray-800">${data.title || 'Untitled'}</p>
                                     <a href="${data.link}" target="_blank" class="text-blue-600 text-xs hover:underline flex items-center gap-1">
                                         <i data-lucide="link" class="w-3 h-3"></i> Link
                                     </a>
@@ -106,8 +117,8 @@
                     } else {
                         contentHTML = `
                             <div>
-                                <p class="font-bold text-gray-800">${data.name} <span class="text-yellow-500 text-sm">(${data.rating}★)</span></p>
-                                <p class="text-gray-500 text-sm italic">"${data.text}"</p>
+                                <p class="font-bold text-gray-800">${data.name || 'Anonymous'} <span class="text-yellow-500 text-sm">(${data.rating || 5}★)</span></p>
+                                <p class="text-gray-500 text-sm italic">"${data.text || ''}"</p>
                             </div>`;
                     }
 
@@ -121,16 +132,38 @@
                     item.appendChild(delBtn);
                     list.appendChild(item);
                 });
-                lucide.createIcons();
+                
+                if(window.lucide) window.lucide.createIcons();
+                
             }, (error) => {
-                console.error("Load Error:", error);
-                list.innerHTML = `<div class="text-red-600 text-xs p-4 border border-red-200 bg-red-50 rounded-lg">Error: ${error.message}</div>`;
+                // *** AGGRESSIVE ERROR HANDLING ***
+                console.error("FIRESTORE ERROR:", error);
+                
+                let errorMsg = error.message;
+                if(error.message.includes("requires an index")) {
+                    errorMsg = "Missing Index! Check console for link.";
+                } else if(error.code === 'permission-denied') {
+                    errorMsg = "Permission Denied. You are logged in but Firestore blocked reading.";
+                }
+
+                list.innerHTML = `
+                    <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg text-sm">
+                        <strong>Error Loading Data:</strong><br/>
+                        ${errorMsg}
+                    </div>
+                `;
             });
         }
 
         async function deleteItem(colName, id) {
             if(confirm('Delete this item?')) {
-                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, id));
+                try {
+                    // Path: artifacts/vibesnap-live/public/data/{colName}/{id} (6 segments - Even - Correct)
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', colName, id);
+                    await deleteDoc(docRef);
+                } catch(e) {
+                    alert("Delete failed: " + e.message);
+                }
             }
         }
 
@@ -148,7 +181,7 @@
                     createdAt: serverTimestamp()
                 });
                 e.target.reset();
-            } catch(err) { alert("Error: " + err.message); }
+            } catch(err) { alert("Error adding item: " + err.message); }
             btn.innerHTML = originalText;
             btn.disabled = false;
         });
@@ -167,7 +200,7 @@
                     createdAt: serverTimestamp()
                 });
                 e.target.reset();
-            } catch(err) { alert("Error: " + err.message); }
+            } catch(err) { alert("Error adding review: " + err.message); }
             btn.innerHTML = originalText;
             btn.disabled = false;
         });
@@ -222,7 +255,7 @@
             </form>
             <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Current Work Items</h3>
             <div id="portfolioList" class="grid gap-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
-                <div class="text-center text-gray-400 py-4">Loading items...</div>
+                <div class="text-center text-gray-400 py-4">Waiting for connection...</div>
             </div>
         </section>
 
@@ -254,13 +287,13 @@
             </form>
             <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Current Reviews</h3>
             <div id="reviewsList" class="grid gap-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
-                <div class="text-center text-gray-400 py-4">Loading reviews...</div>
+                <div class="text-center text-gray-400 py-4">Waiting for connection...</div>
             </div>
         </section>
     </div>
 
     <script>
-        lucide.createIcons();
+        if(window.lucide) lucide.createIcons();
     </script>
 </body>
 </html>
