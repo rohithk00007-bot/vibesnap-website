@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeSnap Content Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- CONFIGURATION ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyD-tG7cRV5v9k5fb_QE2dLo0CnYEHtV_wE",
+            authDomain: "vibesnap-live.firebaseapp.com",
+            projectId: "vibesnap-live",
+            storageBucket: "vibesnap-live.firebasestorage.app",
+            messagingSenderId: "558903357110",
+            appId: "1:558903357110:web:7f602f38208645eca3c017"
+        };
+        const appId = "vibesnap-live";
+        
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+        const AUTHORIZED_EMAILS = ['ande.uday143@gmail.com', 'k.rohith0507@gmail.com', 'vibesnapteam@gmail.com'];
+
+        // --- AUTH LOGIC ---
+        const loginOverlay = document.getElementById('loginOverlay');
+        const dashboard = document.getElementById('dashboard');
+        
+        if(document.getElementById('googleLoginBtn')){
+            document.getElementById('googleLoginBtn').addEventListener('click', () => {
+                signInWithPopup(auth, provider).catch(e => alert(e.message));
+            });
+        }
+        if(document.getElementById('logoutBtn')){
+            document.getElementById('logoutBtn').addEventListener('click', () => signOut(auth).then(() => window.location.reload()));
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user && AUTHORIZED_EMAILS.includes(user.email)) {
+                loginOverlay.classList.add('hidden');
+                dashboard.classList.remove('hidden');
+                loadContent();
+            } else {
+                loginOverlay.classList.remove('hidden');
+                dashboard.classList.add('hidden');
+                if(user) signOut(auth); // Force logout if unauthorized
+            }
+        });
+
+        // --- CONTENT LOGIC ---
+        function loadContent() {
+            loadCollection('portfolio', 'portfolioList');
+            loadCollection('reviews', 'reviewsList');
+        }
+
+        function loadCollection(colName, listId) {
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', colName), orderBy('createdAt', 'desc'));
+            onSnapshot(q, (snapshot) => {
+                const list = document.getElementById(listId);
+                list.innerHTML = '';
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const item = document.createElement('div');
+                    item.className = 'bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center group hover:border-gray-300 transition-colors';
+                    
+                    // Render based on type
+                    let contentHTML = '';
+                    if(colName === 'portfolio') {
+                        contentHTML = `
+                            <div class="flex items-center gap-4">
+                                <div class="w-16 h-16 bg-gray-100 rounded-md overflow-hidden border border-gray-200">
+                                    <img src="${data.image}" class="w-full h-full object-cover" onerror="this.src='https://via.placeholder.com/150'">
+                                </div>
+                                <div>
+                                    <p class="font-bold text-gray-800">${data.title}</p>
+                                    <a href="${data.link}" target="_blank" class="text-blue-600 text-xs hover:underline flex items-center gap-1">
+                                        <i data-lucide="link" class="w-3 h-3"></i> Link
+                                    </a>
+                                </div>
+                            </div>`;
+                    } else {
+                        contentHTML = `
+                            <div>
+                                <p class="font-bold text-gray-800">${data.name} <span class="text-yellow-500 text-sm">(${data.rating}★)</span></p>
+                                <p class="text-gray-500 text-sm italic">"${data.text}"</p>
+                            </div>`;
+                    }
+
+                    item.innerHTML = contentHTML;
+                    
+                    // Delete Button
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'text-gray-400 hover:text-red-600 p-2 transition-colors';
+                    delBtn.innerHTML = '<i data-lucide="trash-2" class="w-5 h-5"></i>';
+                    delBtn.onclick = () => deleteItem(colName, doc.id);
+                    
+                    item.appendChild(delBtn);
+                    list.appendChild(item);
+                });
+                lucide.createIcons();
+            });
+        }
+
+        async function deleteItem(colName, id) {
+            if(confirm('Are you sure you want to delete this item? It will be removed from the website immediately.')) {
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, id));
+            }
+        }
+
+        // --- ADD PORTFOLIO (REELS/WORKS) ---
+        document.getElementById('portfolioForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            const originalText = btn.innerHTML;
+            btn.innerText = 'Adding...';
+            btn.disabled = true;
+            
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'portfolio'), {
+                    title: document.getElementById('work-title').value,
+                    image: document.getElementById('work-image').value, // Thumbnail URL
+                    link: document.getElementById('work-link').value,   // Reel URL
+                    createdAt: serverTimestamp()
+                });
+                e.target.reset();
+                alert("Work Added Successfully!");
+            } catch(err) { alert("Error: " + err.message); }
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+
+        // --- ADD REVIEW ---
+        document.getElementById('reviewForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            const originalText = btn.innerHTML;
+            btn.innerText = 'Adding...';
+            btn.disabled = true;
+
+            try {
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'reviews'), {
+                    name: document.getElementById('review-name').value,
+                    rating: document.getElementById('review-rating').value,
+                    text: document.getElementById('review-text').value,
+                    createdAt: serverTimestamp()
+                });
+                e.target.reset();
+                alert("Review Added Successfully!");
+            } catch(err) { alert("Error: " + err.message); }
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+    </script>
+</head>
+<body class="bg-gray-50 font-sans min-h-screen text-gray-800">
+
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="fixed inset-0 bg-white z-50 flex items-center justify-center">
+        <div class="text-center p-8 bg-white border border-gray-200 shadow-xl rounded-2xl">
+            <div class="mb-4 text-red-600 flex justify-center"><i data-lucide="layout-grid" class="w-12 h-12"></i></div>
+            <h1 class="text-2xl font-black mb-2 uppercase italic">VibeSnap Manager</h1>
+            <p class="text-gray-500 mb-6 text-sm">Add Reels, Works, and Reviews</p>
+            <button id="googleLoginBtn" class="bg-black text-white px-6 py-3 rounded-xl font-bold hover:bg-gray-900 transition-all flex items-center gap-2 mx-auto">
+                <i data-lucide="log-in" class="w-4 h-4"></i> Sign in with Google
+            </button>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden max-w-5xl mx-auto p-6">
+        <header class="flex justify-between items-center mb-10 py-4 border-b border-gray-200">
+            <div class="flex items-center gap-2">
+                <span class="text-2xl font-black italic uppercase">Content <span class="text-red-600">Manager</span></span>
+            </div>
+            <div class="flex gap-4">
+                <a href="index.html" target="_blank" class="text-gray-600 font-bold hover:text-black flex items-center gap-1 text-sm"><i data-lucide="external-link" class="w-4 h-4"></i> View Site</a>
+                <button id="logoutBtn" class="text-red-600 font-bold hover:text-red-800 text-sm">Logout</button>
+            </div>
+        </header>
+
+        <!-- PORTFOLIO SECTION -->
+        <section class="mb-12 bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
+            <div class="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
+                <div class="bg-black text-white p-2 rounded"><i data-lucide="clapperboard" class="w-6 h-6"></i></div>
+                <h2 class="text-xl font-bold uppercase tracking-wide">Manage Portfolio</h2>
+            </div>
+            
+            <form id="portfolioForm" class="grid gap-4 md:grid-cols-3 mb-8">
+                <div class="md:col-span-1">
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Project Title</label>
+                    <input id="work-title" type="text" placeholder="e.g., Summer Fashion Edit" class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:border-black transition-colors" required>
+                </div>
+                <div class="md:col-span-1">
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Cover Image URL</label>
+                    <input id="work-image" type="url" placeholder="https://..." class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:border-black transition-colors" required>
+                    <p class="text-[10px] text-gray-400 mt-1">Right-click Instagram post > Copy Image Address</p>
+                </div>
+                <div class="md:col-span-1">
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Reel / Video Link</label>
+                    <input id="work-link" type="url" placeholder="https://instagram.com/..." class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:border-black transition-colors" required>
+                </div>
+                <button type="submit" class="bg-black text-white p-3 rounded-lg font-bold md:col-span-3 hover:bg-gray-900 transition-all flex items-center justify-center gap-2">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i> Add to Website
+                </button>
+            </form>
+
+            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Current Work Items</h3>
+            <div id="portfolioList" class="grid gap-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                <!-- Items injected here -->
+                <div class="text-center text-gray-400 py-4">Loading items...</div>
+            </div>
+        </section>
+
+        <!-- REVIEWS SECTION -->
+        <section class="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
+            <div class="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
+                <div class="bg-black text-white p-2 rounded"><i data-lucide="star" class="w-6 h-6"></i></div>
+                <h2 class="text-xl font-bold uppercase tracking-wide">Manage Reviews</h2>
+            </div>
+
+            <form id="reviewForm" class="grid gap-4 md:grid-cols-4 mb-8">
+                <div class="md:col-span-1">
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Client Name</label>
+                    <input id="review-name" type="text" placeholder="e.g., Rahul K." class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:border-black" required>
+                </div>
+                <div class="md:col-span-1">
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Rating</label>
+                    <select id="review-rating" class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:border-black bg-white">
+                        <option value="5">⭐⭐⭐⭐⭐ (5 Stars)</option>
+                        <option value="4">⭐⭐⭐⭐ (4 Stars)</option>
+                        <option value="3">⭐⭐⭐ (3 Stars)</option>
+                    </select>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Review Text</label>
+                    <input id="review-text" type="text" placeholder="e.g., Best experience ever!" class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:border-black" required>
+                </div>
+                <button type="submit" class="bg-black text-white p-3 rounded-lg font-bold md:col-span-4 hover:bg-gray-900 transition-all flex items-center justify-center gap-2">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i> Add Review
+                </button>
+            </form>
+
+            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4">Current Reviews</h3>
+            <div id="reviewsList" class="grid gap-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                <!-- Items injected here -->
+                <div class="text-center text-gray-400 py-4">Loading reviews...</div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
