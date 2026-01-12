@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- FIX: Prevent Dark Mode from inverting text colors on mobile -->
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
+    
     <title>VibeSnap Content Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -39,6 +43,9 @@
         const loginOverlay = document.getElementById('loginOverlay');
         const dashboard = document.getElementById('dashboard');
         const statusMsg = document.getElementById('statusMsg');
+        
+        // DEBUG STORE
+        window.rawData = { portfolio: [], reviews: [] };
 
         // --- AUTH LOGIC ---
         function updateStatus(msg) {
@@ -78,6 +85,17 @@
             loadCollection('portfolio', 'portfolioList');
             loadCollection('reviews', 'reviewsList');
         }
+        
+        // EXPOSE DEBUG FUNCTION
+        window.toggleDebug = function() {
+            const area = document.getElementById('debugArea');
+            if(area.classList.contains('hidden')) {
+                area.classList.remove('hidden');
+                area.textContent = "Checking Database...\n" + JSON.stringify(window.rawData, null, 2);
+            } else {
+                area.classList.add('hidden');
+            }
+        };
 
         function loadCollection(colName, listId) {
             const list = document.getElementById(listId);
@@ -88,6 +106,10 @@
             onSnapshot(q, (snapshot) => {
                 updateStatus(`Loaded ${snapshot.size} items from ${colName}`);
                 list.innerHTML = '';
+                
+                // Save for debug
+                window.rawData[colName] = [];
+                snapshot.forEach(doc => window.rawData[colName].push(doc.data()));
                 
                 if(snapshot.empty) {
                     list.innerHTML = `<div class="text-gray-500 text-sm p-4 text-center border-2 border-dashed border-gray-300 rounded-lg">No items yet. Add one above!</div>`;
@@ -108,21 +130,21 @@
                 items.forEach(data => {
                     const item = document.createElement('div');
                     
-                    // FIX: Force solid white background and relative positioning
-                    item.className = 'bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex items-center gap-3 mb-3 relative z-0';
+                    // FIX: Using CSS Grid (Auto | 1fr | Auto) - Prevents collapse on mobile
+                    item.className = 'bg-white p-3 rounded-lg shadow-sm border border-gray-200 grid grid-cols-[64px_1fr_40px] gap-3 items-center mb-3 relative z-0';
                     item.style.cssText = "background-color: white !important; color: black !important;";
                     
                     let contentHTML = '';
                     
                     if(colName === 'portfolio') {
                         contentHTML = `
-                            <!-- 1. Image -->
-                            <div class="w-16 h-16 flex-shrink-0 bg-gray-100 rounded-md overflow-hidden border border-gray-200 relative z-10">
+                            <!-- Col 1: Image (Fixed 64px width) -->
+                            <div class="w-16 h-16 bg-gray-100 rounded-md overflow-hidden border border-gray-200 relative z-10">
                                 <img src="${data.image}" class="w-full h-full object-cover block" onerror="this.src='https://via.placeholder.com/150?text=No+Img';">
                             </div>
                             
-                            <!-- 2. Text: Replaced 'truncate' with 'break-words' and forced black color -->
-                            <div class="flex-1 min-w-0 relative z-10" style="color: black !important;">
+                            <!-- Col 2: Text (Takes remaining space) -->
+                            <div class="min-w-0 relative z-10" style="color: black !important;">
                                 <p class="font-bold text-black text-sm break-words leading-tight">${data.title || 'Untitled'}</p>
                                 <a href="${data.link}" target="_blank" class="text-blue-600 text-xs hover:underline flex items-center gap-1 mt-1 break-all">
                                     <i data-lucide="link" class="w-3 h-3"></i> Link
@@ -131,23 +153,25 @@
                         `;
                     } else {
                         contentHTML = `
-                            <!-- 1. Icon -->
-                            <div class="w-10 h-10 flex-shrink-0 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center relative z-10">
-                                <i data-lucide="user" class="w-5 h-5"></i>
+                            <!-- Col 1: Icon (Fixed 64px width container) -->
+                            <div class="w-16 h-full flex items-center justify-center">
+                                <div class="w-10 h-10 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center relative z-10">
+                                    <i data-lucide="user" class="w-5 h-5"></i>
+                                </div>
                             </div>
 
-                            <!-- 2. Text: Replaced 'truncate' with 'break-words' and forced black color -->
-                            <div class="flex-1 min-w-0 relative z-10" style="color: black !important;">
+                            <!-- Col 2: Text -->
+                            <div class="min-w-0 relative z-10" style="color: black !important;">
                                 <p class="font-bold text-black text-sm break-words leading-tight">${data.name || 'Anonymous'} <span class="text-yellow-600 text-xs">(${data.rating || 5}★)</span></p>
                                 <p class="text-black text-sm italic mt-1 break-words leading-tight">"${data.text || ''}"</p>
                             </div>`;
                     }
 
-                    // 3. Delete Button
+                    // Col 3: Delete Button (Fixed 40px width) -> Appended below
                     item.innerHTML = contentHTML;
                     
                     const delBtn = document.createElement('button');
-                    delBtn.className = 'flex-shrink-0 w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors relative z-10';
+                    delBtn.className = 'w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors relative z-10';
                     delBtn.innerHTML = '<i data-lucide="trash-2" class="w-5 h-5"></i>';
                     delBtn.onclick = () => deleteItem(colName, data.id);
                     
@@ -236,13 +260,17 @@
                 <span class="text-xl font-black italic uppercase">Content <span class="text-red-600">Manager</span></span>
                 <span id="statusMsg" class="text-xs font-mono text-blue-600 mt-1">Initializing...</span>
             </div>
-            <div class="flex gap-3">
-                <a href="index.html" target="_blank" class="bg-white px-3 py-2 rounded border border-gray-200 text-gray-600 font-bold hover:text-black hover:border-black flex items-center gap-1 text-xs transition-colors">
+            <div class="flex gap-3 items-center">
+                <button onclick="toggleDebug()" class="bg-gray-200 px-2 py-1 rounded text-[10px] uppercase font-bold text-gray-600 h-8">Debug</button>
+                <a href="index.html" target="_blank" class="bg-white px-3 py-2 rounded border border-gray-200 text-gray-600 font-bold hover:text-black hover:border-black flex items-center gap-1 text-xs transition-colors h-8">
                     <i data-lucide="external-link" class="w-3 h-3"></i> Site
                 </a>
-                <button id="logoutBtn" class="bg-red-50 px-3 py-2 rounded border border-red-100 text-red-600 font-bold hover:bg-red-100 text-xs transition-colors">Logout</button>
+                <button id="logoutBtn" class="bg-red-50 px-3 py-2 rounded border border-red-100 text-red-600 font-bold hover:bg-red-100 text-xs transition-colors h-8">Logout</button>
             </div>
         </header>
+
+        <!-- DEBUG AREA -->
+        <pre id="debugArea" class="hidden bg-black text-green-400 p-4 text-xs overflow-auto max-h-60 mb-6 rounded-lg font-mono shadow-inner border border-green-900"></pre>
 
         <!-- Portfolio Section -->
         <section class="mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
