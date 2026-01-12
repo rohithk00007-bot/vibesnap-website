@@ -340,11 +340,7 @@
                 onSnapshot(qP, (snapshot) => {
                     portfolioGrid.innerHTML = '';
                     if(snapshot.empty) { 
-                        // Fallback static content
-                        portfolioGrid.innerHTML = `<div class="bg-black p-8 border border-zinc-800 hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-100"><div class="w-14 h-14 bg-zinc-900 border border-zinc-700 flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors"><i data-lucide="aperture" class="w-7 h-7"></i></div><h3 class="text-2xl font-black uppercase italic mb-4">Production</h3><p class="text-zinc-400 mb-6 font-medium">Professionally calibrated iPhones and high quality footage.</p></div>
-                        <div class="bg-black p-8 border border-zinc-800 hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-200"><div class="w-14 h-14 bg-zinc-900 border border-zinc-700 flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors"><i data-lucide="zap" class="w-7 h-7"></i></div><h3 class="text-2xl font-black uppercase italic mb-4">Snappy Edits</h3><p class="text-zinc-400 mb-6 font-medium">Fast cuts, glitches, motion graphics, and sound design that keeps eyes glued.</p></div>
-                        <div class="bg-black p-8 border border-zinc-800 hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-300"><div class="w-14 h-14 bg-zinc-900 border border-zinc-700 flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors"><i data-lucide="crosshair" class="w-7 h-7"></i></div><h3 class="text-2xl font-black uppercase italic mb-4">Strategy</h3><p class="text-zinc-400 mb-6 font-medium">We hack the algorithm. Trend analysis and hook optimization to ensure virality.</p></div>`;
-                        if(window.lucide) lucide.createIcons();
+                        portfolioGrid.innerHTML = `<div class="text-center w-full col-span-3 text-zinc-500">No items yet.</div>`;
                         return;
                     }
                     snapshot.forEach(doc => {
@@ -407,6 +403,7 @@
         .scroll-reveal.active { opacity: 1; transform: translateY(0); }
         .delay-100 { transition-delay: 100ms; }
         .delay-200 { transition-delay: 200ms; }
+        .delay-300 { transition-delay: 300ms; }
         
         .glass-btn { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); }
         .glass-btn:hover { background: rgba(220, 38, 38, 0.2); border-color: rgba(220, 38, 38, 0.5); }
@@ -595,6 +592,51 @@
             </div>
         </div>
     </header>
+
+    <!-- WHAT WE DO -->
+    <section class="py-24 bg-zinc-950 border-b border-zinc-900">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16 scroll-reveal">
+                <span class="text-red-600 font-bold tracking-widest uppercase text-sm mb-2 block">What We Do</span>
+                <h2 class="text-3xl md:text-5xl font-black italic uppercase text-white">We Bring The <span class="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-red-800">Energy</span></h2>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Card 1: Production -->
+                <div class="bg-black p-8 border border-zinc-800 rounded-xl hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-100">
+                    <div class="w-14 h-14 bg-zinc-900 border border-zinc-700 rounded-lg flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors">
+                        <i data-lucide="aperture" class="w-7 h-7"></i>
+                    </div>
+                    <h3 class="text-xl font-black uppercase italic mb-4 text-white">Production</h3>
+                    <p class="text-zinc-400 font-medium leading-relaxed">
+                        Professionally calibrated iPhones and high quality footage.
+                    </p>
+                </div>
+
+                <!-- Card 2: Snappy Edits -->
+                <div class="bg-black p-8 border border-zinc-800 rounded-xl hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-200">
+                     <div class="w-14 h-14 bg-zinc-900 border border-zinc-700 rounded-lg flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors">
+                        <i data-lucide="zap" class="w-7 h-7"></i>
+                    </div>
+                    <h3 class="text-xl font-black uppercase italic mb-4 text-white">Snappy Edits</h3>
+                    <p class="text-zinc-400 font-medium leading-relaxed">
+                        Fast cuts, glitches, motion graphics, and sound design that keeps eyes glued.
+                    </p>
+                </div>
+
+                <!-- Card 3: Strategy -->
+                <div class="bg-black p-8 border border-zinc-800 rounded-xl hover:border-red-600 transition-colors group relative overflow-hidden scroll-reveal delay-300">
+                     <div class="w-14 h-14 bg-zinc-900 border border-zinc-700 rounded-lg flex items-center justify-center mb-6 text-red-600 group-hover:bg-red-600 group-hover:text-black transition-colors">
+                        <i data-lucide="crosshair" class="w-7 h-7"></i>
+                    </div>
+                    <h3 class="text-xl font-black uppercase italic mb-4 text-white">Strategy</h3>
+                    <p class="text-zinc-400 font-medium leading-relaxed">
+                        We hack the algorithm. Trend analysis and hook optimization to ensure virality.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
 
     <!-- NEW SECTION: OUR WORK (DYNAMIC) -->
     <section id="portfolio" class="py-24 bg-zinc-950 relative overflow-hidden">
@@ -905,6 +947,3 @@
     </script>
 </body>
 </html>
-
-
-
