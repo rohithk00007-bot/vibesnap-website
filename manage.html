@@ -10,7 +10,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, orderBy, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- CONFIGURATION ---
         const firebaseConfig = {
@@ -62,7 +62,8 @@
 
         function loadCollection(colName, listId) {
             const list = document.getElementById(listId);
-            const q = query(collection(db, 'artifacts', appId, 'public', 'data', colName), orderBy('createdAt', 'desc'));
+            // FIX: Removed orderBy() from query to prevent Index errors. Sorting is done in JS below.
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', colName));
             
             onSnapshot(q, (snapshot) => {
                 list.innerHTML = '';
@@ -70,8 +71,21 @@
                     list.innerHTML = `<div class="text-gray-400 text-sm p-4">No items yet. Add one above!</div>`;
                     return;
                 }
+
+                // FIX: Manual Sort (Newest First)
+                const items = [];
                 snapshot.forEach(doc => {
-                    const data = doc.data();
+                    items.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // Sort by createdAt (handling potential nulls for brand new items)
+                items.sort((a, b) => {
+                    const timeA = a.createdAt?.seconds || 0;
+                    const timeB = b.createdAt?.seconds || 0;
+                    return timeB - timeA;
+                });
+
+                items.forEach(data => {
                     const item = document.createElement('div');
                     item.className = 'bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center group hover:border-gray-300 transition-colors';
                     
@@ -102,37 +116,15 @@
                     const delBtn = document.createElement('button');
                     delBtn.className = 'text-gray-400 hover:text-red-600 p-2 transition-colors';
                     delBtn.innerHTML = '<i data-lucide="trash-2" class="w-5 h-5"></i>';
-                    delBtn.onclick = () => deleteItem(colName, doc.id);
+                    delBtn.onclick = () => deleteItem(colName, data.id);
                     
                     item.appendChild(delBtn);
                     list.appendChild(item);
                 });
                 lucide.createIcons();
             }, (error) => {
-                // *** ERROR HANDLING & UI FEEDBACK ***
                 console.error("Load Error:", error);
-                let msg = "Error loading data.";
-                
-                if (error.message.includes("requires an index")) {
-                    msg = `
-                        <div class="space-y-2">
-                            <strong class="text-red-700 block">⚠️ Action Required: Missing Index</strong>
-                            <p>To sort items by date, Firestore requires an index.</p>
-                            <ol class="list-decimal list-inside text-left mt-2">
-                                <li>Right-click here > <b>Inspect</b> > <b>Console</b>.</li>
-                                <li>Find the red error message containing a <b>link</b>.</li>
-                                <li>Click that link to create the index automatically.</li>
-                                <li>Wait 2-3 mins and reload this page.</li>
-                            </ol>
-                        </div>
-                    `;
-                } else if (error.code === 'permission-denied') {
-                    msg = "<b>Permission Denied:</b> Check Firestore Security Rules.";
-                } else {
-                    msg = `Error: ${error.message}`;
-                }
-
-                list.innerHTML = `<div class="text-red-600 text-xs p-4 text-center border border-red-200 bg-red-50 rounded-lg">${msg}</div>`;
+                list.innerHTML = `<div class="text-red-600 text-xs p-4 border border-red-200 bg-red-50 rounded-lg">Error: ${error.message}</div>`;
             });
         }
 
@@ -156,7 +148,6 @@
                     createdAt: serverTimestamp()
                 });
                 e.target.reset();
-                // Success message in UI could be added here
             } catch(err) { alert("Error: " + err.message); }
             btn.innerHTML = originalText;
             btn.disabled = false;
@@ -176,7 +167,6 @@
                     createdAt: serverTimestamp()
                 });
                 e.target.reset();
-                // Success message in UI could be added here
             } catch(err) { alert("Error: " + err.message); }
             btn.innerHTML = originalText;
             btn.disabled = false;
